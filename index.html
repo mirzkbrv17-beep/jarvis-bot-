@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Jarvis</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#ebe9e4;--card:#fff;--tx:#1c1c1e;--sub:#6b6b70;--pri:#0d47b8;--ok:#1e8e4e;--err:#c0392b;--line:#e3e1dc}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.35 -apple-system,Segoe UI,Roboto,sans-serif;padding:12px 12px 96px}
+h2{margin:6px 4px 12px;font-size:20px}.card{background:var(--card);border-radius:16px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px #0001}
+.row{display:flex;align-items:center;gap:12px}.grow{flex:1;min-width:0}.t{font-weight:600}.s{color:var(--sub);font-size:13px}
+.ic{width:42px;height:42px;border-radius:12px;background:#e8eefb;display:flex;align-items:center;justify-content:center;font-size:20px;flex:none}
+.chip{font-size:12px;padding:3px 9px;border-radius:99px;background:#eee;color:var(--sub);font-weight:600}.on{background:#dff3e6;color:var(--ok)}.pro{background:#7a4a1e;color:#fff}
+button{font:inherit;border:0;border-radius:12px;padding:11px 14px;background:#e8eefb;color:var(--pri);font-weight:600}
+button.p{background:linear-gradient(#1558d6,#0d3fa0);color:#fff}button.d{background:#fdeceb;color:var(--err)}button:disabled{opacity:.5}
+.big{width:100%;padding:15px;font-size:16px;margin-top:6px}
+input,textarea,select{width:100%;font:inherit;padding:11px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--tx)}textarea{min-height:90px;resize:vertical}
+label{display:block;font-size:13px;color:var(--sub);margin:10px 2px 4px}
+.sw{position:relative;width:46px;height:27px;flex:none}.sw input{display:none}.sw span{position:absolute;inset:0;background:#cfcfd4;border-radius:99px;transition:.2s}
+.sw span:before{content:"";position:absolute;left:3px;top:3px;width:21px;height:21px;border-radius:50%;background:#fff;transition:.2s}.sw input:checked+span{background:var(--ok)}.sw input:checked+span:before{left:22px}
+nav{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));background:#fff;border-radius:22px;display:flex;padding:6px;box-shadow:0 2px 12px #0003}
+nav a{flex:1;text-align:center;font-size:11px;padding:7px 2px;border-radius:16px;color:var(--sub)}nav a b{display:block;font-size:20px}nav a.act{background:#e8eefb;color:var(--pri);font-weight:700}
+#toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:12px;display:none;z-index:9;max-width:90%}
+.g{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}.g:last-child{border:0}.err{color:var(--err)}.ok{color:var(--ok)}
+ul{padding-left:18px;margin:6px 0}li{margin:4px 0}
+</style></head><body>
+<div id="v"></div><nav id="nav"></nav><div id="toast"></div>
+<script>
+const tg=Telegram.WebApp;tg.ready();tg.expand();
+let S=null,page=new URLSearchParams(location.search).get('p')||'home',G=null,draft=null,kd=null,L={step:0};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',3200)}
+async function api(p,b){try{const r=await fetch('/api/'+p,{method:b===undefined?'GET':'POST',headers:{'X-Init-Data':tg.initData,'Content-Type':'application/json'},body:b===undefined?undefined:JSON.stringify(b)});
+ const j=await r.json();if(!r.ok)throw new Error(j.error||'Xato');return j}catch(e){toast(e.message);throw e}}
+const NAV=[['home','☰','Uy'],['autohabar','📨','Avtohabar'],['kanal','📣','Kanal'],['groups','💬','Chatlar'],['accounts','👥','Akkaunt'],['pro','🛍','Do\'kon']];
+function sw(k,fn){return `<label class="sw"><input type="checkbox" ${S.settings[k]?'checked':''} onchange="${fn||`tog('${k}')`}"><span></span></label>`}
+function go(p){page=p;if(p==='groups'||p==='kanal')loadG();render()}
+async function load(){S=await api('state');render();if(page==='groups'||page==='kanal')loadG()}
+async function save(o,msg){S=await api('settings',o);if(msg)toast(msg);render()}
+function tog(k){save({[k]:!S.settings[k]})}
+function head(){return `<div class="row" style="margin-bottom:10px"><span class="chip ${S.pro?'pro':''}">${S.pro?'👑 PRO':'FREE'}</span><div class="grow"></div>
+ ${S.accounts.length?`<select style="width:auto;max-width:60%" onchange="selAcc(this.value)">${S.accounts.map(a=>`<option value="${a.id}" ${a.id===S.active?'selected':''}>${esc(a.username||a.name||a.phone)}</option>`).join('')}</select>`:''}</div>`}
+function noacc(){return `<div class="card"><div class="t">Akkaunt ulanmagan</div><div class="s">Avval Telegram akkauntingizni ulang.</div><button class="p big" onclick="go('accounts')">Akkaunt ulash</button></div>`}
+function item(ic,t,s,right,fn){return `<div class="card row" onclick="${fn}"><div class="ic">${ic}</div><div class="grow"><div class="t">${t}</div><div class="s">${s}</div></div>${right||'›'}</div>`}
+const badge=on=>`<span class="chip ${on?'on':''}">${on?'Yoqiq':"O'chiq"}</span>`;
+function ago(t){if(!t)return '—';const m=Math.round((Date.now()/1000-t)/60);return m<1?'hozir':m<60?m+' daq. oldin':Math.round(m/60)+' soat oldin'}
+const R={
+home(){const s=S.settings;return head()+(S.active?
+ item('📨','Autohabar','Guruhlarga avtomatik habar yuborish — bir marta sozlaysiz, akkauntingiz o\'zi yuborib turadi.',badge(S.running),"go('autohabar')")+
+ item('📣','Kanal','Kanalga habar yuborish, xohlasangiz guruhlarga forward qilish',badge(S.ch_running),"go('kanal')")+
+ item('👤','Avtomatik obuna','Guruh majburiy obuna so\'rasa — akkaunt o\'zi obuna bo\'ladi',badge(s.sub_on),"go('tools')")+
+ item('💬','DM javob','Siz offline bo\'lganda DM habarlarga avtomatik javob beradi',badge(s.dm_on),"go('autoreply')")+
+ item('🧹','Habar tozlash','Akkaunt o\'z guruhlaridagi O\'Z habarlarini o\'chiradi','›',"go('tools')")+
+ item('↩️','Autoreply','Guruhga kelgan habarlarga avtomatik javob',badge(s.grp_on),"go('autoreply')"):noacc())},
+autohabar(){if(!S.active)return noacc();const s=S.settings;
+ const st=!S.connected?'<span class="err">Akkaunt ulanmagan</span>':s.last_error?`<span class="err">Oxirgi xato: ${esc(s.last_error)}</span>`:`<span class="ok">Xatolik yo'q</span>`;
+ return head()+`<div class="card"><div class="t">📊 Statistika</div><div class="s" style="margin-top:6px">Yuborildi: <b>${s.sent}</b> · Xato: <b>${s.failed}</b> · Tsikl: <b>${s.cycles}</b><br>Oxirgi tsikl: ${ago(s.last_run)}<br>${st}</div></div>
+ <div class="card row"><div class="grow"><div class="t">Autohabar</div><div class="s">${S.running?'Ishlayapti':'To\'xtatilgan'}</div></div>${badge(S.running)}</div>`+
+ item('👥','Guruhlar','Yuborish uchun guruhlarni tanlang',`<b style="color:var(--pri)">${S.groups_enabled}/${S.groups_total}</b>`,"go('groups')")+
+ item('✉️','Habar',esc((s.texts[0]||'Matn kiritilmagan').slice(0,60)),'›',"go('text')")+
+ item('⏱','Kechikish',`Guruhlar orasi ${s.delay} s · tsikl ${Math.max(s.cycle,S.limits.min_cycle)} s`,'›',"go('interval')")+
+ `<div class="card row"><div class="ic">⚡</div><div class="grow"><div class="t">Inline yuborish</div><div class="s">Habar bot orqali yuboriladi (bot guruhda bo'lishi kerak)</div></div>${sw('via_bot')}</div>
+ <button class="p big" onclick="run(${!S.running})">${S.running?'⏹ To\'xtatish':'▶ Boshlash'}</button>`},
+kanal(){if(!S.active)return noacc();const s=S.settings;
+ if(!kd)kd={texts:s.ch_texts.length?[...s.ch_texts]:[''],channel:s.channel,mode:s.ch_mode,every:Math.max(Math.round(s.ch_every/60),Math.ceil(S.limits.min_cycle/60)),times:[...s.ch_times],once:s.ch_once?toLocal(s.ch_once):'',limit:s.ch_limit,fwd:!!s.ch_fwd,n:s.ch_fwd_n||''};
+ const lim=S.limits.texts,minm=Math.ceil(S.limits.min_cycle/60),sel=m=>kd.mode===m?'selected':'';
+ const st=!S.connected?'<span class="err">Akkaunt ulanmagan</span>':s.ch_error?`<span class="err">${esc(s.ch_error)}</span>`:`<span class="ok">Xatolik yo'q</span>`;
+ const glist=G===null?'Yuklanmoqda…':G.length?G.map(g=>`<div class="g"><div class="grow">${esc(g.title)}</div><label class="sw"><input type="checkbox" ${g.fwd?'checked':''} onchange="togG(${g.chat_id},this.checked,'fwd')"><span></span></label></div>`).join(''):`Guruh yo'q. 🔄 ni bosing.`;
+ return head()+`<h2>📣 Kanal</h2>
+ <div class="card"><div class="t">📊 Statistika</div><div class="s" style="margin-top:6px">Kanalga: <b>${s.ch_posts}</b> · Forward: <b>${s.ch_fwd_sent}</b> · Xato: <b>${s.ch_failed}</b><br>Oxirgi yuborish: ${ago(s.ch_last)}<br>${st}</div></div>
+ <div class="card row"><div class="grow"><div class="t">Kanal rejimi</div><div class="s">${S.ch_running?'Ishlayapti':"To'xtatilgan"}</div></div>${badge(S.ch_running)}</div>
+ <div class="card"><div class="t">1. Kanal</div><label>Kanal (@username yoki t.me havola). Akkaunt kanalda xabar yoza olishi kerak</label><input value="${esc(kd.channel)}" placeholder="@kanalim" oninput="kd.channel=this.value"></div>
+ ${kd.texts.map((t,i)=>`<div class="card"><div class="row"><div class="t grow">2. Kanalga yoziladigan xabar ${i+1}</div>${kd.texts.length>1?`<button class="d" onclick="kDel(${i})">✕</button>`:''}</div><textarea class="kt" oninput="kd.texts[${i}]=this.value">${esc(t)}</textarea></div>`).join('')}
+ ${kd.texts.length<lim?`<button onclick="kAdd()">＋ Xabar qo'shish (${kd.texts.length}/${lim})</button>`:`<div class="s">Limit: ${lim} ta${S.pro?'':' · Pro da '+S.pro_limits.texts+' ta'}</div>`}
+ <div class="card" style="margin-top:10px"><div class="t">3. Qachon yuborilsin</div>
+  <label>Rejim</label><select onchange="kd.mode=this.value;render()"><option value="interval" ${sel('interval')}>Har N daqiqada takrorlash</option><option value="daily" ${sel('daily')}>Har kuni belgilangan soatda</option><option value="once" ${sel('once')}>Bir marta (sana va soat)</option></select>
+  ${kd.mode==='interval'?`<label>Har necha daqiqada (min ${minm}${S.pro?'':' · Pro da '+Math.ceil(S.pro_limits.min_cycle/60)})</label><input type="number" min="${minm}" value="${kd.every}" oninput="kd.every=this.value">`:''}
+  ${kd.mode==='daily'?`<label>Soat (har kuni shu vaqtda, sizning vaqt zonangizda)</label><div class="row"><input type="time" id="tm" style="flex:1"><button onclick="kTime()">＋</button></div><div style="margin-top:8px">${kd.times.map(x=>`<span class="chip on" style="margin-right:6px;display:inline-block;margin-bottom:6px" onclick="kTimeDel('${x}')">${x} ✕</span>`).join('')||'<span class="s">Soat qo\'shilmagan</span>'}</div>`:''}
+  ${kd.mode==='once'?`<label>Sana va soat</label><input type="datetime-local" value="${kd.once}" oninput="kd.once=this.value">`:''}
+  ${kd.mode!=='once'?`<label>Nechta marta yuborilsin (0 = cheksiz)</label><input type="number" min="0" value="${kd.limit}" oninput="kd.limit=this.value">`:''}
+ </div>
+ <button class="p big" onclick="saveK()">💾 Saqlash</button>
+ <div class="card" style="margin-top:10px"><div class="row"><div class="grow"><div class="t">4. Guruhlarga forward qilinsinmi?</div><div class="s">Kanalga yozilgan xabar tanlangan guruhlarga forward qilinadi</div></div>${swv(kd.fwd,'setFwd(this.checked)')}</div>
+ ${kd.fwd?`<label>Nechta guruhga forward qilinsin (max ${S.limits.groups}${S.pro?'':' · Pro da '+S.pro_limits.groups})</label><input type="number" min="1" max="${S.limits.groups}" value="${kd.n}" onchange="setN(this.value)">
+  ${+kd.n>0?`<div class="row" style="margin:10px 0"><button class="p" onclick="syncG()">🔄</button><button onclick="allG(true,'fwd')">Hammasi</button><button onclick="allG(false,'fwd')">Hech biri</button><div class="s grow" style="text-align:right">Tanlandi: <b>${S.groups_fwd}/${kd.n}</b></div></div>
+  <div id="gl" style="max-height:340px;overflow:auto">${glist}</div>`:`<div class="s" style="margin-top:8px">Avval nechta guruh ekanini kiriting, keyin ro'yxat chiqadi.</div>`}`:''}
+ </div>
+ <div class="s" style="margin:6px 4px">Forward paytida guruhlar orasidagi kechikish: ${s.delay} s (Avtohabar → Kechikish bo'limida o'zgartiriladi).${S.pro?'':` Free tarifda xabar oxiriga «@${esc(S.bot)} orqali yuborildi» qo'shiladi.`}</div>
+ <button class="p big" onclick="kRun(${!S.ch_running})">${S.ch_running?"⏹ To'xtatish":'▶ Boshlash'}</button>`},
+text(){if(!S.active)return noacc();const s=S.settings;if(!draft)draft=s.texts.length?[...s.texts]:[''];const lim=S.limits.texts;
+ return head()+`<h2>Avtohabar matni</h2>${draft.map((t,i)=>`<div class="card"><div class="row"><div class="t grow">Xabar ${i+1}</div>${draft.length>1?`<button class="d" onclick="delT(${i})">✕</button>`:''}</div><textarea class="tx" oninput="draft[${i}]=this.value">${esc(t)}</textarea></div>`).join('')}
+ ${draft.length<lim?`<button onclick="addT()">＋ Xabar qo'shish (${draft.length}/${lim})</button>`:`<div class="s">Limit: ${lim} ta${S.pro?'':' · Pro da 10 ta'}</div>`}
+ <div class="s" style="margin:6px 4px">${S.pro?'Imzo qo\'shilmaydi (Pro).':`Har xabar oxiriga «@${esc(S.bot)} orqali yuborildi» qo'shiladi — Pro da olib tashlanadi.`}</div>
+ <button class="p big" onclick="saveText()">Saqlash</button>`},
+interval(){if(!S.active)return noacc();const s=S.settings;return head()+`<h2>Interval</h2><div class="card">
+ <label>Guruhlar orasidagi kechikish (soniya, min 10)</label><input id="dl" type="number" min="10" value="${s.delay}">
+ <label>Tsikllar oralig'i (soniya, min ${S.limits.min_cycle}${S.pro?'':' · Pro da '+S.pro_limits.min_cycle})</label><input id="cy" type="number" min="${S.limits.min_cycle}" value="${Math.max(s.cycle,S.limits.min_cycle)}">
+ <div class="s" style="margin-top:8px">Diqqat: 1–2 daqiqalik interval Telegram tomonidan spam deb topilib, akkauntni cheklashi mumkin. Ko'p guruhda tsikl tugamasa, keyingisi darrov boshlanadi.</div></div>
+ <button class="p big" onclick="saveInt()">Saqlash</button>`},
+groups(){if(!S.active)return noacc();return head()+`<h2>Guruhlarni sozlash</h2><div class="s" style="margin:-6px 4px 10px">Avtohabar yuboriladigan guruhlar</div><div class="row" style="margin-bottom:10px">
+ <button class="p" onclick="syncG()">🔄 Yangilash</button><button onclick="allG(true)">Hammasi</button><button onclick="allG(false)">Hech biri</button></div>
+ <div class="s" style="margin:0 4px 8px">Tanlandi: ${S.groups_enabled} · limit ${S.limits.groups}</div>
+ <div class="card">${G===null?'Yuklanmoqda…':G.length?G.map(g=>`<div class="g"><div class="grow">${esc(g.title)}</div><label class="sw"><input type="checkbox" ${g.enabled?'checked':''} onchange="togG(${g.chat_id},this.checked)"><span></span></label></div>`).join(''):'Guruh yo\'q. «Yangilash» ni bosing.'}</div>`},
+autoreply(){if(!S.active)return noacc();const s=S.settings;return head()+`<h2>Autoreply</h2>
+ <div class="card"><div class="row"><div class="grow"><div class="t">DM javob</div><div class="s">Shaxsiy xabarga (6 soatda 1 marta) javob</div></div>${sw('dm_on')}</div><label>Javob matni</label><textarea id="dm">${esc(s.dm_text)}</textarea></div>
+ <div class="card"><div class="row"><div class="grow"><div class="t">Guruh autoreply</div><div class="s">Sizni belgilasa yoki xabaringizga javob bersa</div></div>${sw('grp_on')}</div><label>Javob matni</label><textarea id="gr">${esc(s.grp_text)}</textarea></div>
+ <button class="p big" onclick="saveAR()">Matnlarni saqlash</button>`},
+tools(){if(!S.active)return noacc();const s=S.settings;return head()+`<h2>Foydali funksiyalar</h2>
+ <div class="card"><div class="row"><div class="grow"><div class="t">Avtomatik obuna</div><div class="s">Guruhda «obuna bo'ling» desa, akkaunt havolalarga o'zi obuna bo'ladi</div></div>${sw('sub_on')}</div>
+ <label>Qo'lda obuna bo'lish (t.me havolalar, bo'sh joy bilan)</label><textarea id="lk" placeholder="https://t.me/kanal1 https://t.me/+abc..."></textarea><button class="big" onclick="joinL()">Obuna bo'lish</button></div>
+ <div class="card"><div class="t">🧹 Habar tozlash</div><div class="s">Tanlangan guruhlardagi akkauntingizning avtohabar matniga o'xshash xabarlari (oxirgi 100 tasi) o'chiriladi</div><button class="d big" onclick="clean()">Tozalashni boshlash</button></div>
+ <div class="card"><div class="t">🧪 Test yuborish</div><div class="s">Birinchi xabar «Saqlangan xabarlar»ingizga yuboriladi</div><button class="big" onclick="testS()">Test yuborish</button></div>`},
+accounts(){let h=head()+`<h2>Profillar</h2>`+S.accounts.map(a=>`<div class="card row"><div class="ic">👤</div><div class="grow"><div class="t">${esc(a.name||a.phone)}</div><div class="s">${esc(a.phone)} ${a.username?'· @'+esc(a.username):''} ${a.id===S.active?'· <b class="ok">faol</b>':''}</div></div>
+ ${a.id!==S.active?`<button onclick="selAcc(${a.id})">Tanlash</button>`:''}<button class="d" onclick="delAcc(${a.id})">✕</button></div>`).join('');
+ const lim=S.limits.accounts;if(S.accounts.length>=lim)return h+`<div class="s">Limit: ${lim} ta akkaunt${S.pro?'':' · Pro da 3 ta'}</div>`;
+ const f=[`<label>Telefon raqam</label><input id="ph" placeholder="+998901234567" type="tel"><button class="p big" onclick="lStart()">Kod yuborish</button>`,
+ `<label>Telegram yuborgan kod (1-2-3-4-5 shaklida yozing)</label><input id="cd" placeholder="1-2-3-4-5" inputmode="numeric"><button class="p big" onclick="lCode()">Tasdiqlash</button>`,
+ `<label>2 bosqichli parol</label><input id="pw" type="password"><button class="p big" onclick="lPass()">Kirish</button>`][L.step];
+ return h+`<div class="card"><div class="t">＋ Akkaunt ulash</div>${f}<div class="s" style="margin-top:8px">⚠️ Asosiy emas, alohida raqam ishlatish xavfsizroq. Sessiya shifrlanib saqlanadi.</div></div>`},
+pro(){const f=S.free,p=S.pro_limits;const until=S.pro_until>Date.now()/1000?new Date(S.pro_until*1000).toLocaleDateString():null;
+ return head()+`<div class="card"><div class="t" style="font-size:18px">👑 Pro tarif</div><div class="s">${until?'Faol: '+until+' gacha':'Faol emas'}</div>
+ <div style="font-size:26px;font-weight:800;margin:8px 0">${S.price} <span class="s">so'm / 1 oy</span></div>
+ <ul><li>👥 <b>Ko'p akkaunt</b>: ${p.accounts} ta (bepul: ${f.accounts})</li><li>💬 <b>Cheksiz guruh</b>: ${p.groups} gacha (bepul: ${f.groups})</li>
+ <li>✉️ <b>Xabar rotatsiyasi</b>: ${p.texts} ta matn (bepul: ${f.texts})</li><li>⚡ <b>Tez tsikl</b>: ${p.min_cycle} soniyadan (bepul: ${f.min_cycle} s)</li>
+ <li>🏷 <b>Imzosiz xabar</b>: «orqali yuborildi» yozuvi yo'q</li></ul></div>
+ <div class="card"><div class="s">To'lov uchun @${esc(S.contact)} ga yozing va ID'ingizni yuboring:</div><div class="t" style="margin:6px 0">${S.uid}</div>
+ <button class="p big" onclick="tg.openTelegramLink('https://t.me/${S.contact}')">@${esc(S.contact)} ga yozish</button></div>`}
+};
+function render(){document.getElementById('nav').innerHTML=NAV.map(([p,i,l])=>`<a class="${page===p?'act':''}" onclick="go('${p}')"><b>${i}</b>${l}</a>`).join('');
+ if(page!=='text')draft=null;if(page!=='kanal')kd=null;const gl=document.getElementById('gl'),st=gl?gl.scrollTop:0,y=scrollY;
+ document.getElementById('v').innerHTML=S?(R[page]||R.home)():'Yuklanmoqda…';const g2=document.getElementById('gl');if(g2)g2.scrollTop=st;scrollTo(0,y)}
+async function run(on){S=await api('run',{on});toast(on?'Autohabar boshlandi':'To\'xtatildi');render()}
+function addT(){draft.push('');render()}function delT(i){draft.splice(i,1);render()}
+function saveText(){document.querySelectorAll('textarea.tx').forEach((e,i)=>draft[i]=e.value);save({texts:draft.filter(x=>x.trim())},'Saqlandi')}
+function saveInt(){save({delay:+dl.value,cycle:+cy.value},'Saqlandi')}
+function saveAR(){save({dm_text:dm.value,grp_text:gr.value},'Saqlandi')}
+function swv(c,fn){return `<label class="sw"><input type="checkbox" ${c?'checked':''} onchange="${fn}"><span></span></label>`}
+function toLocal(ts){const d=new Date(ts*1000);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,16)}
+function kAdd(){kd.texts.push('');render()}function kDel(i){kd.texts.splice(i,1);render()}
+function kTime(){const v=document.getElementById('tm').value;if(!v)return toast('Soatni tanlang');if(!kd.times.includes(v))kd.times.push(v);kd.times.sort();render()}
+function kTimeDel(x){kd.times=kd.times.filter(t=>t!==x);render()}
+function kPayload(){return {channel:kd.channel,ch_texts:kd.texts.filter(x=>x.trim()),ch_mode:kd.mode,ch_every:Math.round((+kd.every||0)*60),ch_times:kd.times,
+ ch_once:kd.once?Math.floor(new Date(kd.once).getTime()/1000):0,ch_limit:+kd.limit||0,ch_tz:-new Date().getTimezoneOffset()}}
+async function saveK(){await save(kPayload(),'Saqlandi')}
+async function kRun(on){if(on)S=await api('settings',kPayload());S=await api('ch/run',{on});toast(on?'Kanal rejimi boshlandi':"To'xtatildi");render()}
+async function setFwd(c){kd.fwd=c;try{await save({ch_fwd:c})}catch(_){}}
+async function setN(v){kd.n=+v||'';try{await save({ch_fwd_n:+v||0})}catch(_){kd.n=S.settings.ch_fwd_n||'';render()}G=await api('groups');render()}
+async function loadG(){G=await api('groups');render()}
+async function syncG(){toast('Yangilanmoqda…');G=await api('groups/sync',{});S=await api('state');render()}
+async function togG(id,e,kind){try{await api('groups/toggle',{chat_id:id,enabled:e,kind})}catch(_){}G=await api('groups');S=await api('state');render()}
+async function allG(e,kind){try{await api('groups/all',{enabled:e,kind})}catch(_){}G=await api('groups');S=await api('state');render()}
+async function selAcc(id){S=await api('account/select',{id:+id});G=null;kd=null;draft=null;if(page==='groups'||page==='kanal')loadG();render()}
+function delAcc(id){tg.showConfirm('Akkauntni o\'chirib, sessiyadan chiqilsinmi?',async ok=>{if(ok){S=await api('account/delete',{id});G=null;kd=null;draft=null;if(page==='groups'||page==='kanal')loadG();render()}})}
+async function lStart(){await api('login/start',{phone:ph.value});L.step=1;render();toast('Kod Telegramga yuborildi')}
+async function lCode(){const r=await api('login/code',{code:cd.value});if(r.need_password){L.step=2;render()}else{S=r;L.step=0;toast('Ulandi ✅');go('groups')}}
+async function lPass(){S=await api('login/password',{password:pw.value});L.step=0;toast('Ulandi ✅');go('groups')}
+async function joinL(){toast((await api('join',{links:lk.value})).msg)}
+async function clean(){toast((await api('clean',{})).msg)}
+async function testS(){toast((await api('test',{})).msg)}
+load();
+</script></body></html>
